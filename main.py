@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 import uuid
 from datetime import datetime, timedelta
+import httpx
 
 app = FastAPI()
 
@@ -95,3 +96,49 @@ async def buy(email: str, plan_name: str):
     user_data.pop("password")
 
     return {"message": "Plan Upgraded Successfully", "user": user_data} 
+
+
+@app.post("/scrapers")
+async def scraper(request: Request):
+
+    header = request.headers
+    userkey = header.get("apikey")
+
+    if not userkey:
+        return {"message": "API key is missing"}
+
+    user = None
+    for userinfo in userDB.values():
+        if userinfo["apikey"] == userkey:
+            user = userinfo
+            break
+    if not user:
+        return {"message": "Invalid API key"}
+
+    if user['credits'] < 1:
+        return {"message": "Insufficient credits"}
+
+
+    data = await request.json()
+    keyword = data.get("keyword")
+
+    url = "https://api.scrapeasap.com/scrapers/google_search"
+
+    payload = {
+        "query": keyword,
+        "page": 1,
+        "limit": 10
+    }
+    
+    headers = {
+        "apikey": "<apikey>",
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+
+        response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+    
+    user['credits'] = user['credits'] -1
+    print(userDB)
+    return{"scraped data": response.text}
