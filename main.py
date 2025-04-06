@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request
 import uuid
 from datetime import datetime, timedelta
 import httpx
+from database import RegisterToDB, FindUserByEmail, FindUserByAPIKey, UpdateUserByEmail, DecreaseBlance
+
 
 app = FastAPI()
 
@@ -31,7 +33,9 @@ async def register(request: Request):
     if not all([fullname, email, password]):
         return {"message": "All fields are required"}
     
-    if email in userDB:
+    existing_user = await FindUserByEmail(email)
+
+    if existing_user:
         return {"message": "User already exists"}
     
     plan_name = "free"
@@ -39,7 +43,7 @@ async def register(request: Request):
     apikey = str(uuid.uuid4())
     expiry = (datetime.utcnow() + timedelta(days=30)).isoformat()
 
-    userDB[email] = {
+    userdata = {
         "fullname": fullname,
         "email": email,
         "password": password,
@@ -49,9 +53,9 @@ async def register(request: Request):
         "expiry": expiry
     }
 
-    user = userDB[email]
+    await RegisterToDB(userdata)
 
-    return {"message": "User registered successfully", "user": user}
+    return {"message": "User registered successfully"}
 
 
 @app.post("/dashboard")
@@ -63,14 +67,14 @@ async def dashboard(request: Request):
     if not all([email, password]):
         return {"message": "All fields are required"}
     
-    user = userDB.get(email)
+    user = await FindUserByEmail(email)
+
     if not user or user['password'] != password:
         return {"message": "Invalid credentials"}
 
-    user_data = user.copy()
-    user_data.pop("password")
+    user.pop("_id", None)  # Remove the MongoDB ObjectId field if present
 
-    return {"message": "User logged in successfully", "user": user_data}
+    return {"message": "User logged in successfully", "user": user}
 
 
 @app.get("/buy")
@@ -78,28 +82,27 @@ async def buy(email: str, plan_name: str):
     if plan_name not in plans:
         return {"message": "Invalid Plan"}
 
-    if email not in userDB:
+    existing_user = await FindUserByEmail(email)
+    if not existing_user:
         return {"message": "User not found"}
 
     if plan_name == "free":
         return {"message": "Free plan is already activated"}
 
-    user = userDB.get(email)
-
     #TODO - Implement Payment Gateway Integration
 
-    user['plan'] = plan_name
-    user['credits'] = plans[plan_name]['credits']
-    user['expiry'] = (datetime.utcnow() + timedelta(days=30)).isoformat()
 
-    user_data = user.copy()
-    user_data.pop("password")
+    plan_credits = plans[plan_name]['credits']
+    plan_expiry = (datetime.utcnow() + timedelta(days=30)).isoformat()
 
-    return {"message": "Plan Upgraded Successfully", "user": user_data} 
+    await UpdateUserByEmail(email, plan_name, plan_credits, plan_expiry)
+
+    return {"message": "Plan Upgraded Successfully"} 
 
 
 @app.post("/scrapers")
 async def scraper(request: Request):
+    cost = 1 # Cost per scrape
 
     header = request.headers
     userkey = header.get("apikey")
@@ -107,17 +110,12 @@ async def scraper(request: Request):
     if not userkey:
         return {"message": "API key is missing"}
 
-    user = None
-    for userinfo in userDB.values():
-        if userinfo["apikey"] == userkey:
-            user = userinfo
-            break
+    user = await FindUserByAPIKey(userkey)
     if not user:
         return {"message": "Invalid API key"}
 
-    if user['credits'] < 1:
+    if user['credits'] < cost:
         return {"message": "Insufficient credits"}
-
 
     data = await request.json()
     keyword = data.get("keyword")
@@ -131,7 +129,7 @@ async def scraper(request: Request):
     }
     
     headers = {
-        "apikey": "<apikey>",
+        "apikey": "b3fe812f7bb9b010fec567deeace9b9dd15d8a74a020440adc741a97ac147cc1",
         "Content-Type": "application/json"
     }
 
@@ -139,6 +137,7 @@ async def scraper(request: Request):
 
         response = await client.post(url, json=payload, headers=headers, timeout=30.0)
     
-    user['credits'] = user['credits'] -1
-    print(userDB)
+    await DecreaseBlance(userkey, cost)
+
     return{"scraped data": response.text}
+
