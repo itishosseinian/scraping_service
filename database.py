@@ -1,6 +1,13 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 
-client = AsyncIOMotorClient("mongodb+srv://itishosseinian:BXeVy7egx6wBkxqf@codematetv.xbhokc3.mongodb.net/?retryWrites=true&w=majority&appName=codematetv")
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+MONGO_KEY = os.getenv("MONGO_KEY")
+
+client = AsyncIOMotorClient(MONGO_KEY)
 db = client.get_database("scraping_service")
 user_collection = db.get_collection("users")
 

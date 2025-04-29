@@ -1,11 +1,15 @@
 from fastapi import FastAPI, Request
 import uuid
 from datetime import datetime, timedelta
-import httpx
-from database import RegisterToDB, FindUserByEmail, FindUserByAPIKey, UpdateUserByEmail, DecreaseBlance
+from database import RegisterToDB, FindUserByEmail, UpdateUserByEmail
 
+from scrapers.googlesearch import router as googlesearch_router
+from scrapers.instagramprofile import router as instagramprofile_router
 
 app = FastAPI()
+
+app.include_router(googlesearch_router)
+app.include_router(instagramprofile_router)
 
 plans = {
     "free": {"credits": 100, "price": 0, "description": "Free plan with 100 credits"},
@@ -98,46 +102,3 @@ async def buy(email: str, plan_name: str):
     await UpdateUserByEmail(email, plan_name, plan_credits, plan_expiry)
 
     return {"message": "Plan Upgraded Successfully"} 
-
-
-@app.post("/scrapers")
-async def scraper(request: Request):
-    cost = 1 # Cost per scrape
-
-    header = request.headers
-    userkey = header.get("apikey")
-
-    if not userkey:
-        return {"message": "API key is missing"}
-
-    user = await FindUserByAPIKey(userkey)
-    if not user:
-        return {"message": "Invalid API key"}
-
-    if user['credits'] < cost:
-        return {"message": "Insufficient credits"}
-
-    data = await request.json()
-    keyword = data.get("keyword")
-
-    url = "https://api.scrapeasap.com/scrapers/google_search"
-
-    payload = {
-        "query": keyword,
-        "page": 1,
-        "limit": 10
-    }
-    
-    headers = {
-        "apikey": "b3fe812f7bb9b010fec567deeace9b9dd15d8a74a020440adc741a97ac147cc1",
-        "Content-Type": "application/json"
-    }
-
-    async with httpx.AsyncClient() as client:
-
-        response = await client.post(url, json=payload, headers=headers, timeout=30.0)
-    
-    await DecreaseBlance(userkey, cost)
-
-    return{"scraped data": response.text}
-
